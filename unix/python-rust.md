@@ -1,65 +1,53 @@
-# Rust + Python 連携 (メモ)
+# PythonからRust関数を呼び出す方法
 
-#### 目的：PythonからRustの関数を呼び出して、返し値をPython側で処理する。<br><br>
+#### はじめに
+Python言語の内部にはC言語で作られている部分がありますが、C言語関数をPythonの中から呼び出すために、CFFI（英: C Foreign Function Interface）というモジュールが使われるらしいです。なおRust言語でライブラリを作るときは、C関数としてエクスポートすることが可能なので、Rustの関数もPythonから呼び出すことができるわけです。
 
-先ずRustライブラリを作成する。(ファイル名: lib_d3npa_ffi.rs)
-```
-#![crate_name = "_d3npa_ffi"] // 頭に「lib」が付けられる
+今回はPython 3の中からrust言語でコンパイルした関数を呼び出す方法を紹介したいと思います。
+
+#### 準備
+Python3とRustがインストールされていることを確認してください。
+更に、環境によって、`cffi`をpipからインストールする必要があるかもしれないので、ご注意ください。
+
+#### Rust関数作成
+例のため、`cargo`を使わずにしましたが、crateの設定を変えると同じことができます。
+```rust
 #![crate_type = "cdylib"]
 
 #[no_mangle]
 pub extern "C" fn add(x: i32, y: i32) -> i32 {
-    return x + y;
+	return x + y;
 }
 ```
-
-`extern "C"`を使ったことで関数がC言語から呼び出せられる形にコンパイルされて、`#[no_mangle]`の属性はコンパイラーへ「この関数の名前を変えずにそのままにしておいて」と言うサインです。さてコンパイルしましょう。
+crate_type、つまりクレートの種類をC言語の動的ライブラリに設定。続いて整数2つを和を返す関数`add`を実装します。なお関数の上に`#[no_mangle]`という文を付けましたが、付けないままにコンパイルしてしまうと、関数名がランダム化されてしまうのです。Pythonから関数を呼び出そうとするときに関数名がわからないと困りますので、エクスポートしたい関数に必ず`#[no_mangle]`を付けておきましょうね。
 
 ```
-$ rustc lib_d3npa.rs
-$ ls -l *.so
--rw-------  1 d3npa  users  2348224 Aug 21 12:33 lib_d3npa.so
-```
-
-なうライブラリを利用するPythonコードを書きましょう！(ファイル名: lib_d3npa.py)
-```
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-from cffi import FFI
-
-ffi = FFI()
-ffi.cdef("""
-    int add(int x, int y);
-""")
-lib = ffi.dlopen("./lib_d3npa_ffi.so")
-
-def add(x, y):
-    return lib.add(x, y)
-```
-`cffi`とはpipからインストールできるC言語連携モジュールです。`cdef()`の引数に使いたい関数のシグニチャーを宣言する。最後に`lib`をハンドルとし、`ffi.dlopen()`でライブラリを読み込みます。以下のよう、`lib.add(x, y)`というかたちでRustライブラリの関数を呼び出すことができます。
-
-最後は (ファイル名: main.py)
-```
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-import lib_d3npa
-
-def main():
-    x, y = 10, 32
-    print("{} + {} = {}".format(x, y, lib_d3npa.add(x, y)))
-
-if __name__ == "__main__":
-    main()
-```
-
-いざ実行！
-```
+$ ls
+example.rs
+$ rustc example.rs
 $ ls -1
-lib_d3npa.py
-lib_d3npa_ffi.rs
-lib_d3npa_ffi.so
-main.py
-$ python3 main.py
-10 + 32 = 42
+example.rs
+libexample.so
 ```
+こうして`libexample.so`が作られました。
 
+#### Pythonコード作成
+次にPythonコードを書いていきます。
+```python
+#!/usr/bin/env python3
+import cffi
+
+ffi = cffi.FFI()
+ffi.cdef('''
+	int add(int x, int y);
+''')
+lib = ffi.dlopen('./libexample.so')
+
+print(lib.add(5, 7))
+```
+ザッと言葉にすると、`ffi`オブジェクトを宣言し、ライブラリをインポートする前に`cdef`でインポートしたいC関数を定義しておきます。それから`dlopen`でライブラリを読み取り、libと名付けてpythonモジュールのように使います。
+
+```
+$ python3 example.py
+12
+```
