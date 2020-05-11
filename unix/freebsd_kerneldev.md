@@ -1,9 +1,9 @@
 # FreeBSDカーネルモジュール開発環境の構築
 
-最近「[Designing BSD Rootkits](https://www.amazon.co.jp/Designing-BSD-Rootkits-Introduction-Hacking-ebook/dp/B002MZAR6I)」という本を読んでいました。ついでにこの本をカーネルハッキングに興味を持ってる方におすすめします。なお、環境がFreeBSDになっているのですが、私が勉強のために使っている環境の構築手順を解説していきます。
+最近「[Designing BSD Rootkits](https://www.amazon.co.jp/Designing-BSD-Rootkits-Introduction-Hacking-ebook/dp/B002MZAR6I)」という本を読んでいました。本は英語ですが、カーネルハッキングに興味を持った方に強くオススメします。なお、メインOSとして私はLinux使っているのですが、環境がFreeBSDになっているので、仮想環境を構築しました。この紀記事はその設定の手順になります。
 
 ## バーチャルマシン（vagrant）
-仮想環境を管理するために vagrant というツールを使ってるんですが、これは任意です。以下 `Vagrantfile` になります。
+仮想環境を管理するために vagrant というツールを使ってるんですが、これは任意です。なお `Vagrantfile` は以下のようになります。
 ```
 Vagrant.configure("2") do |config|
   config.vm.box = "generic/freebsd12"
@@ -11,16 +11,20 @@ Vagrant.configure("2") do |config|
 end
 ```
 - `generic/freebsd12` というイメージを使用する
-- ホスト上の `./proj/` というフォルダをVMの `/home/vagrant/proj` に同期する
+- ホスト上の `./proj/` というフォルダをVMの `/home/vagrant/proj` に同期する（`rsync`利用）
 
-それから `vagrant up` を打つと vagrant がVMをダウンロードして起動してくれます。なお、FreeBSDのイメージでは共有フォルダが使えないので、rsyncが自動的にインストールされましたが、VMに接続する前に `vagrant rsync-auto &` を実行しないと共有フォルダが同期されませんので忘れないようにしましょう！最後に `vagrant ssh` でVMに接続することができます。FreeBSDへようこそ！
+`vagrant up` というコマンドでVMを立ち上げることができます。初起動時、vagrant が `generic/freebsd12` のイメージをダウンロードして展開してくれます。私がやったとき、`rsync`も自動的にインストールしてくれました。最後に `vagrant ssh` でVMに接続することができます。
 
-## rsync によるファイル同期の注意点
-ホスト側でファイルに変更が合ったとき、共有フォルダ全体がVMに自動的にコピーされます。しかし、変更はVMの方で行われた場合、ホストには反映されません。一方同期ってイメージです。さらに、一回VMで新しいファイルを作成して、今度ホストのフォルダが同期されるとき、新しいファイルが消えてしまいます。なので注意が必要です。
+FreeBSDの世界へようこそ！
+
+## rsync によるファイル同期の注意点２つ
+- VMを起動しても、同期が自動的に開始されないため、`vagrant rsync-auto &`を自ら実行する必要があります。
+- 同期はホストからVMに、一方通行となります。したがってVM側にファイルの変更があっても同期されず、注意が必要。
 
 ## パッケージミラーの設定
-デフォルト設定ではアメリカのサーバーがパッケージミラーになっています。日本から使うと非常に遅いので、日本のサーバーに変えます。ミラーを設定するには、`/etc/pkg/FreeBSD.conf` というファイルを編集します。こちらは公式ミラーの一覧です：[FreeBSD FTP Sitesページ](https://www.freebsd.org/doc/handbook/mirrors-ftp.html#mirrors-jp-ftp)
+デフォルト・ミラーが米国に在するので、日本から使うと割と遅いです。そのため、国内のミラーの設定をおすすめします。
 
+下記、公式ミラー「ftp4.jp.FreeBSD.org」を設定しますが、公式ミラー一覧は[こちら](https://www.freebsd.org/doc/handbook/mirrors-ftp.html#mirrors-jp-ftp)です。
 ```
 FreeBSD: {
   url: "pkg+ftp://ftp4.jp.FreeBSD.org/${ABI}/quarterly", # <- ここ変えたよ
@@ -30,17 +34,20 @@ FreeBSD: {
   enabled: yes
 }
 ```
+※設定ファイル名：`/etc/pkg/FreeBSD.conf`
 
-編集が終わったら `pkg update` でレポジトリキャッシュを更新します。
+設定の変更後に必ず `pkg update` を実行しましょう。
 
 ## カーネルのソースファイルを入手
-さっきのFTPミラーから、OSの全てのソースコードを[ダウンロードすることができます](ftp://ftp4.jp.freebsd.org/pub/FreeBSD/releases/amd64/amd64/12.1-RELEASE/)。
+カーネルのソースコードをGithubでの参照はいいですが、時にはローカル環境にコピーがあると便利です。
+
+あらゆるFTPミラーから、[ソースコードがダウロード可能です](ftp://ftp4.jp.freebsd.org/pub/FreeBSD/releases/amd64/amd64/12.1-RELEASE/)。
 
 ```
 ftp ftp://ftp4.jp.freebsd.org/pub/FreeBSD/releases/amd64/amd64/12.1-RELEASE/src.txz
 ```
 
-※ `tar Jtf src.txz` で、アーカイブを解凍せずに中身を確認することができます。
+※コツ！`tar Jtf src.txz` で、アーカイブを解凍せずに中身を確認することができます。
 
 ```
 # tar Jtf /root/src.txz | head
@@ -55,20 +62,18 @@ usr/src/Makefile
 usr/src/crypto/
 [ 省略... ]
 ```
-`/` フォルダにて解凍コマンドを実行すると、ソースコードは `/usr/src` 以下に置いてくれます。
+`/` フォルダから解凍コマンドを実行すると、ソースコードは `/usr/src` 以下に置いてくれます。
 
 ```
 cd /
 tar Jxvf /root/src.txz
 ```
 
-## Hello Worldカーネルモジュール
+## カーネルモジュールの例（Hello World）
 
 > **注意：** <br>
 > `proj/` 以下の開発・ファイル編集など、必ずホストにて行うように気をつけましょう。<br>
-> 詳しくは上記の[ファイル同期の注意点](#ファイル同期の注意点)を確認してください。
-
-開発はホストでやります。
+> コンパイル（`make`）はVM側で行います。<br>
 
 ### proj/chapter01/helloworld/hello.c
 ```c
@@ -117,7 +122,7 @@ Goodbye, cruel world...
 $
 ```
 
-ソースが変わる際、rsync がフォルダを上書きし、コンパイル結果が消され綺麗な状況に戻ります。
+ホスト側にソースが更新される際、rsyncで同期されます。結果としてVM側コンパイルアウトプットは消され、綺麗になります。
 ```
 $ ==> default: Rsyncing folder: 省略/proj/ => /home/vagrant/proj
 $ ls
